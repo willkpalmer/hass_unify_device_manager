@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up WP UniFi Device Manager",
+        "description": "Adds a UniFi Devices page to the sidebar listing every device tracker the UniFi Network integration has imported, and whether each one is online or offline. It never changes anything."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "WP UniFi Device Manager is already configured."
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "domain": "unifi_device_manager",
+  "name": "WP UniFi Device Manager",
+  "after_dependencies": ["unifi"],
+  "codeowners": ["@willkpalmer"],
+  "config_flow": true,
+  "dependencies": ["frontend", "http", "panel_custom", "websocket_api"],
+  "documentation": "https://github.com/willkpalmer/hass_unify_device_manager",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/willkpalmer/hass_unify_device_manager/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.1.0"
+}
