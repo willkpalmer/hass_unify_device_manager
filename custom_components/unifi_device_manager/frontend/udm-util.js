@@ -3,6 +3,8 @@
 
 export const WS = {
   SUBSCRIBE: "unifi_device_manager/devices/subscribe",
+  RENAME_TO_TRACKER: "unifi_device_manager/devices/rename_to_tracker",
+  SET_NAMES: "unifi_device_manager/devices/set_names",
 };
 
 // Where each view's search, tab and sort are remembered, per browser.

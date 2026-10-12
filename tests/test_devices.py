@@ -132,3 +132,46 @@ async def test_services_listed_apart(hass):
 def test_modules_import():
     # The panel, WebSocket commands and config flow load without errors.
     from custom_components.unifi_device_manager import config_flow, panel, websocket_api  # noqa: F401
+
+
+async def test_rename_devices_to_trackers(hass):
+    from custom_components.unifi_device_manager.devices import (
+        async_rename_devices_to_trackers,
+        async_set_device_names,
+    )
+
+    entry = _unifi_entry(hass)
+    dev_reg = dr.async_get(hass)
+    ent_reg = er.async_get(hass)
+
+    def device(mac, name, name_by_user=None):
+        d = dev_reg.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            connections={(dr.CONNECTION_NETWORK_MAC, mac)},
+            name=name,
+        )
+        return dev_reg.async_update_device(d.id, name_by_user=name_by_user) if name_by_user else d
+
+    def tracker(uid, device_id, original_name):
+        return ent_reg.async_get_or_create(
+            "device_tracker", "unifi", uid, config_entry=entry, device_id=device_id,
+            original_name=original_name, suggested_object_id=uid,
+        ).entity_id
+
+    phone = device("aa:00:00:00:00:01", "Pixel-10", name_by_user="Old name")
+    tv = device("aa:00:00:00:00:02", "Living room TV")
+    phone_tracker = tracker("phone", phone.id, "Will's Pixel")
+    tv_tracker = tracker("tv", tv.id, "Living room TV")  # already named so
+    no_device = tracker("loose", None, "Loose client")
+
+    changes, skipped = async_rename_devices_to_trackers(
+        hass, [phone_tracker, tv_tracker, no_device, "light.not_a_tracker"]
+    )
+    assert changes == [{"device_id": phone.id, "name_by_user": "Old name"}]
+    assert skipped == 3
+    assert dev_reg.async_get(phone.id).name_by_user == "Will's Pixel"
+    assert dev_reg.async_get(tv.id).name_by_user is None
+
+    # Undo.
+    assert async_set_device_names(hass, changes) == 1
+    assert dev_reg.async_get(phone.id).name_by_user == "Old name"

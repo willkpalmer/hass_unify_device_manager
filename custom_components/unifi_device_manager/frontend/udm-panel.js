@@ -1,5 +1,6 @@
 // WP UniFi Device Manager panel - the main element,
-// <unifi-device-manager-panel>: the Devices and Services lists (see
+// <unifi-device-manager-panel>: the Devices and Services lists, and
+// renaming devices after their trackers (see
 // unifi-device-manager-panel.js for how the modules fit together).
 
 const V = new URL(import.meta.url).search;
@@ -11,6 +12,8 @@ const {
 } = await import(`./udm-util.js${V}`);
 const { STYLE, TEMPLATE } = await import(`./udm-style.js${V}`);
 
+// How long Undo is offered after an action.
+const UNDO_MS = 8000;
 const STATUS_LABELS = { online: "Online", offline: "Offline", disabled: "Disabled", none: "No entities" };
 // Status sorts offline first.
 const STATUS_RANK = { offline: 0, online: 1, none: 2, disabled: 3 };
@@ -46,6 +49,8 @@ const VIEWS = {
     ],
     defaultSort: { key: "device", dir: 1 },
     searchKeys: ["device", "entity_name", "entity_id"],
+    // Trackers can be selected, by entity ID.
+    selectable: true,
   },
   services: {
     title: "UniFi services",
@@ -98,12 +103,16 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
         sort: view.columns.some((c) => c.key === was.sort?.key)
           ? { key: was.sort.key, dir: was.sort.dir === -1 ? -1 : 1 }
           : { ...view.defaultSort },
+        selected: new Set(),
+        // Where a shift-click selects from.
+        anchor: null,
       };
     }
     // Where each list was scrolled to, kept for when the page is opened
     // again (e.g. Back after opening a device).
     this._scroll = loadSession(SCROLL_KEY, {});
     this._restoreScroll = true;
+    this._undo = null;
     this.attachShadow({ mode: "open" });
     this.shadowRoot.innerHTML = `<style>${STYLE}</style>${TEMPLATE}`;
     this._el = (name) => this.shadowRoot.querySelector(`[data-el="${name}"]`);
@@ -129,7 +138,8 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
       saveSession(SCROLL_KEY, this._scroll);
     }, { passive: true });
     this._onHash = () => this._applyHash();
-    // "/" jumps to the filter from anywhere on the page (not while typing).
+    // "/" jumps to the filter, Escape clears the selection, from anywhere
+    // on the page (not while typing).
     this._onWindowKey = (ev) => {
       if (!this.isConnected || this.hidden || ev.defaultPrevented) return;
       const typing = ev.composedPath().some((el) => el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
@@ -137,6 +147,9 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
       if (ev.key === "/") {
         ev.preventDefault();
         this._el("filter").focus();
+      } else if (ev.key === "Escape" && this._st().selected.size) {
+        this._st().selected.clear();
+        this._render();
       }
     };
     this._syncControls();
@@ -261,6 +274,9 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
     this._data = { trackers: msg.trackers, services: msg.services || [] };
     this._loaded = true;
     this._stateKey = "";
+    // Trackers no longer there can't stay selected.
+    const ids = new Set(this._data.trackers.map((r) => r.entity_id));
+    for (const id of this._st("devices").selected) if (!ids.has(id)) this._st("devices").selected.delete(id);
     this._render();
   }
 
@@ -298,7 +314,17 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
   }
 
   _saveViewState() {
-    saveJSON(VIEW_STATE_KEY, { view: this._view, ...this._state });
+    const saved = { view: this._view };
+    for (const [name, st] of Object.entries(this._state)) {
+      saved[name] = { filter: st.filter, tab: st.tab, sort: st.sort };
+    }
+    saveJSON(VIEW_STATE_KEY, saved);
+  }
+
+  // The selected entries that are shown (actions only apply to those).
+  _selectedShown() {
+    const selected = this._st().selected;
+    return (this._shownRows || []).filter((r) => selected.has(r.entity_id));
   }
 
   // -- rendering ------------------------------------------------------
@@ -330,9 +356,9 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
       ? `${num(counts.online || 0)} online · ${num(counts.offline || 0)} offline`
       : "";
 
-    this._renderHead();
     const shown = this._shown(rows);
     this._shownRows = shown;
+    this._renderHead();
     const body = this._el("body");
     body.textContent = "";
     for (const r of shown) {
@@ -347,9 +373,17 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
     else status.textContent = "";
 
     const [one, many] = view.noun;
-    this._el("export-what").textContent = `${num(shown.length)} ${shown.length === 1 ? one : many} shown`;
+    const selected = view.selectable ? this._selectedShown() : [];
+    this._el("export-what").textContent = selected.length
+      ? `${num(selected.length)} selected`
+      : `${num(shown.length)} ${shown.length === 1 ? one : many} shown`;
+    const rename = this._el("rename");
+    rename.hidden = !view.selectable;
+    const renamable = selected.filter((r) => r.device_id).length;
+    rename.disabled = !renamable;
+    rename.textContent = renamable > 1 ? `Rename ${num(renamable)} devices to tracker names` : "Rename device to tracker name";
     this._el("footer").textContent = this._loaded
-      ? `Showing ${num(shown.length)} of ${num(rows.length)} ${view.footerNoun}`
+      ? `Showing ${num(shown.length)} of ${num(rows.length)} ${view.footerNoun}${selected.length ? ` · ${num(selected.length)} selected` : ""}`
       : "";
 
     // Back where the list was (e.g. Back after opening a device).
@@ -363,6 +397,21 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
     const st = this._st();
     const head = this._el("head");
     head.textContent = "";
+    if (VIEWS[this._view].selectable) {
+      const th = document.createElement("th");
+      th.className = "check";
+      const all = document.createElement("input");
+      all.type = "checkbox";
+      all.dataset.selectAll = "";
+      all.title = "Select all shown";
+      all.setAttribute("aria-label", "Select all shown");
+      const shown = this._shownRows.length;
+      const selected = this._selectedShown().length;
+      all.checked = shown > 0 && selected === shown;
+      all.indeterminate = selected > 0 && selected < shown;
+      th.appendChild(all);
+      head.appendChild(th);
+    }
     for (const col of VIEWS[this._view].columns) {
       const th = document.createElement("th");
       th.textContent = col.label;
@@ -410,7 +459,18 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
 
   _renderTracker(r) {
     const tr = document.createElement("tr");
-    tr.className = "row";
+    const selected = this._st().selected.has(r.entity_id);
+    tr.className = `row selectable${selected ? " selected" : ""}`;
+    const tdCheck = document.createElement("td");
+    tdCheck.className = "check";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.dataset.row = r.entity_id;
+    cb.checked = selected;
+    cb.setAttribute("aria-label", `Select ${r.entity_name}`);
+    cb.title = "Select (shift-click to select a range)";
+    tdCheck.appendChild(cb);
+    tr.appendChild(tdCheck);
     tr.appendChild(this._deviceCell(r.device_id, r.device));
 
     // Tracker name: opens Home Assistant's entity dialog.
@@ -477,6 +537,22 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
       window.dispatchEvent(new CustomEvent("location-changed"));
       return;
     }
+    const rowCheck = find("row");
+    if (rowCheck) {
+      this._toggleRow(rowCheck, ev.shiftKey);
+      return;
+    }
+    const selectAll = find("selectAll");
+    if (selectAll) {
+      const st = this._st();
+      for (const r of this._shownRows) {
+        if (selectAll.checked) st.selected.add(r.entity_id);
+        else st.selected.delete(r.entity_id);
+      }
+      st.anchor = null;
+      this._render();
+      return;
+    }
     const viewButton = find("view");
     if (viewButton) {
       this._setView(viewButton.dataset.view);
@@ -485,6 +561,7 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
     const tab = find("tab");
     if (tab) {
       this._st().tab = tab.dataset.tab;
+      this._st().selected.clear();
       this._saveViewState();
       this._el("scroll").scrollTop = 0;
       this._render();
@@ -502,6 +579,10 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
     const action = find("action")?.dataset.action;
     if (action === "menu") {
       this.dispatchEvent(new Event("hass-toggle-menu", { bubbles: true, composed: true }));
+    } else if (action === "rename") {
+      this._renameToTrackers();
+    } else if (action === "undo") {
+      this._runUndo();
     } else if (action === "export-csv" || action === "export-md") {
       this._el("export").open = false;
       this._export(action === "export-csv" ? "csv" : "md");
@@ -510,9 +591,79 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
     if (!path.includes(this._el("export"))) this._el("export").open = false;
   }
 
+  // A row's checkbox; with shift, every row from the last one clicked
+  // takes the same state.
+  _toggleRow(cb, shift) {
+    const st = this._st();
+    const ids = this._shownRows.map((r) => r.entity_id);
+    const from = shift && st.anchor ? ids.indexOf(st.anchor) : -1;
+    const to = ids.indexOf(cb.dataset.row);
+    const range = from >= 0 && to >= 0
+      ? ids.slice(Math.min(from, to), Math.max(from, to) + 1)
+      : [cb.dataset.row];
+    for (const id of range) {
+      if (cb.checked) st.selected.add(id);
+      else st.selected.delete(id);
+    }
+    st.anchor = cb.dataset.row;
+    this._render();
+  }
+
+  // Names the selected trackers' devices after the trackers, then offers
+  // Undo (their names as they were) for a few seconds.
+  async _renameToTrackers() {
+    const entityIds = this._selectedShown().filter((r) => r.device_id).map((r) => r.entity_id);
+    if (!entityIds.length) return;
+    const button = this._el("rename");
+    button.disabled = true;
+    let result;
+    try {
+      result = await this._hass.callWS({ type: WS.RENAME_TO_TRACKER, entity_ids: entityIds });
+    } catch (err) {
+      alert(`WP UniFi Device Manager: ${err.message || err.code || err}`);
+      this._render();
+      return;
+    }
+    this._st().selected.clear();
+    this._render();
+    const renamed = `Renamed ${num(result.renamed)} device${result.renamed === 1 ? "" : "s"}`;
+    const skipped = result.skipped ? ` · ${num(result.skipped)} unchanged (already named so)` : "";
+    this._showUndo(
+      `${renamed}${skipped}`,
+      result.undo.length ? { type: WS.SET_NAMES, names: result.undo } : null,
+    );
+  }
+
+  _showUndo(message, undo) {
+    clearTimeout(this._undoTimer);
+    this._undo = undo;
+    this._el("snack-text").textContent = message;
+    this.shadowRoot.querySelector('[data-action="undo"]').hidden = !undo;
+    this._el("snackbar").classList.add("open");
+    this._undoTimer = setTimeout(() => this._hideUndo(), UNDO_MS);
+  }
+
+  _hideUndo() {
+    clearTimeout(this._undoTimer);
+    this._undo = null;
+    this._el("snackbar").classList.remove("open");
+  }
+
+  async _runUndo() {
+    const undo = this._undo;
+    this._hideUndo();
+    if (!undo) return;
+    try {
+      await this._hass.callWS(undo);
+    } catch (err) {
+      alert(`WP UniFi Device Manager: ${err.message || err.code || err}`);
+    }
+  }
+
   _export(format) {
     const view = VIEWS[this._view];
-    const rows = this._shownRows || [];
+    const selected = view.selectable ? this._selectedShown() : [];
+    const rows = selected.length ? selected : this._shownRows || [];
     const [header, body] = this._view === "services"
       ? [["Service", "Type", "Entities", "Status"],
         rows.map((r) => [r.name, r.model, r.entities, STATUS_LABELS[r.status]])]

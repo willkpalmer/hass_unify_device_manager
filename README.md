@@ -23,6 +23,17 @@ registered (network clients and UniFi's own devices alike):
 
 Tabs: **All**, **Online**, **Offline** and **Disabled**, each with a count.
 
+### Selecting trackers and renaming their devices
+
+Tick trackers to select them: shift-click selects a range, the box in the
+heading selects everything shown, and Escape clears the selection.
+**Rename device to tracker name** then names each selected tracker's
+device after the tracker (its name in the *Tracker name* column), as if
+you'd renamed the device on its own page. Trackers with no device, and
+devices already named so, are left alone. **Undo** puts the old names back
+for a few seconds afterwards. **Export** saves just the selected trackers
+when any are selected.
+
 ### Where disabled trackers come from
 
 UniFi reports a tracker for every client it has seen, and Home Assistant

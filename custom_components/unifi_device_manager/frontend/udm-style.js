@@ -96,6 +96,20 @@ export const STYLE = `
 .action:disabled { opacity: 0.4; cursor: default; }
 .export summary.action { display: inline-block; user-select: none; }
 .export[open] summary.action { background: rgba(3, 169, 244, 0.08); }
+/* Undo, after an action. */
+.snackbar {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 5;
+  display: none; align-items: center; gap: 16px; max-width: calc(100vw - 32px);
+  padding: 10px 12px 10px 16px; border-radius: 8px;
+  background: var(--primary-text-color, #323232); color: var(--primary-background-color, #fff);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+.snackbar.open { display: flex; }
+.snackbar button {
+  font: inherit; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer;
+  border: 0; background: none; color: var(--primary-color, #03a9f4); padding: 6px 8px;
+}
+.action[hidden] { display: none; }
 .table-wrap { flex: 0 1 auto; min-height: 0; overflow: auto; }
 thead th {
   position: sticky; top: 0; z-index: 1;
@@ -108,10 +122,13 @@ th { font-weight: 500; color: var(--secondary-text-color, #727272); white-space:
 th.sortable { cursor: pointer; }
 th.sortable:hover { color: var(--primary-text-color, #212121); }
 th .arrow { display: inline-block; width: 1em; }
+td.check, th.check { width: 36px; padding-right: 0; }
 td.when { white-space: nowrap; font-variant-numeric: tabular-nums; }
 td.entity-id { word-break: break-all; min-width: 160px; font-family: var(--code-font-family, monospace); font-size: 13px; }
 td.name { min-width: 160px; word-break: break-word; }
 tbody tr.row:hover { background: var(--secondary-background-color, rgba(0,0,0,0.03)); }
+tbody tr.row.selected { background: rgba(3, 169, 244, 0.1); }
+input[type=checkbox] { width: 18px; height: 18px; cursor: pointer; accent-color: var(--primary-color, #03a9f4); }
 a { color: var(--primary-color, #03a9f4); text-decoration: none; }
 a:hover { text-decoration: underline; }
 .sub { color: var(--secondary-text-color, #727272); font-size: 12px; }
@@ -144,7 +161,10 @@ a:hover { text-decoration: underline; }
     display: grid; grid-template-columns: 1fr; row-gap: 3px;
     padding: 10px 12px; border-top: 1px solid var(--divider-color, #e0e0e0);
   }
+  tbody tr.row.selectable { grid-template-columns: 30px 1fr; column-gap: 10px; }
   tbody tr.row td { border: 0; padding: 0; min-width: 0; text-align: left; }
+  tbody tr.row.selectable td { grid-column: 2; }
+  tbody tr.row.selectable td.check { grid-column: 1; grid-row: 1 / span 4; }
   tbody tr.row td.no-device { display: none; }
   tbody tr.row td.when { font-size: 12px; color: var(--secondary-text-color, #727272); }
   /* The tabs scroll sideways rather than run off the card. */
@@ -181,8 +201,10 @@ export const TEMPLATE = `
     <div class="toolbar">
       <input type="search" data-el="filter" aria-label="Filter" title="Filter (press / to jump here)">
       <span class="spacer"></span>
+      <button class="action" data-action="rename" data-el="rename" disabled
+        title="Name each selected tracker's device after the tracker (the name shown under Tracker name)">Rename device to tracker name</button>
       <details class="export" data-el="export">
-        <summary class="action secondary" role="button" title="Save the trackers shown as a file">Export</summary>
+        <summary class="action secondary" role="button" title="Save the entries shown (or just the selected ones) as a file">Export</summary>
         <div class="menu">
           <div class="sub" data-el="export-what"></div>
           <button data-action="export-csv">CSV (spreadsheet)</button>
@@ -199,5 +221,9 @@ export const TEMPLATE = `
     </div>
     <div class="footer" data-el="footer"></div>
   </div>
+</div>
+<div class="snackbar" data-el="snackbar" role="status" aria-live="polite">
+  <span data-el="snack-text"></span>
+  <button data-action="undo">Undo</button>
 </div>
 `;
