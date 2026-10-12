@@ -121,7 +121,7 @@ a:hover { text-decoration: underline; }
 }
 .chip.online { background: rgba(76, 175, 80, 0.15); color: var(--success-color, #43a047); }
 .chip.offline { background: rgba(219, 68, 55, 0.15); color: var(--error-color, #db4437); }
-.chip.disabled { background: rgba(127, 127, 127, 0.15); color: var(--secondary-text-color, #727272); }
+.chip.disabled, .chip.none { background: rgba(127, 127, 127, 0.15); color: var(--secondary-text-color, #727272); }
 .empty, .status { padding: 32px 16px; text-align: center; color: var(--secondary-text-color, #727272); }
 .status:empty { display: none; }
 .footer { padding: 8px 16px 12px; color: var(--secondary-text-color, #727272); font-size: 12px; }
@@ -172,18 +172,14 @@ export const TEMPLATE = `
 </div>
 <div class="content">
   <nav class="views" aria-label="Pages">
-    <button class="view active" data-view="devices">Devices<span class="count" data-el="view-count"></span></button>
+    <button class="view" data-view="devices">Devices<span class="count" data-view-count="devices"></span></button>
+    <button class="view" data-view="services">Services<span class="count" data-view-count="services"></span></button>
   </nav>
   <div class="card">
-    <div class="tabs" role="tablist">
-      <button class="tab" role="tab" data-tab="all">All<span class="count" data-tab-count="all"></span></button>
-      <button class="tab" role="tab" data-tab="online">Online<span class="count" data-tab-count="online"></span></button>
-      <button class="tab" role="tab" data-tab="offline">Offline<span class="count" data-tab-count="offline"></span></button>
-      <button class="tab" role="tab" data-tab="disabled">Disabled<span class="count" data-tab-count="disabled"></span></button>
-    </div>
+    <div class="tabs" role="tablist" data-el="tabs"></div>
     <div class="hint" data-el="hint"></div>
     <div class="toolbar">
-      <input type="search" data-el="filter" aria-label="Filter" placeholder="Filter by device, name or entity ID" title="Filter (press / to jump here)">
+      <input type="search" data-el="filter" aria-label="Filter" title="Filter (press / to jump here)">
       <span class="spacer"></span>
       <details class="export" data-el="export">
         <summary class="action secondary" role="button" title="Save the trackers shown as a file">Export</summary>

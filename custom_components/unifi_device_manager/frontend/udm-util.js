@@ -5,17 +5,48 @@ export const WS = {
   SUBSCRIBE: "unifi_device_manager/devices/subscribe",
 };
 
-// Where the page's search, tab and sort are remembered, per browser.
+// Where each view's search, tab and sort are remembered, per browser.
 export const VIEW_STATE_KEY = "unifi_device_manager.view_state";
+// Where each view's scroll position is kept for this browser tab, to come
+// back to the same place after opening a device and going Back.
+export const SCROLL_KEY = "unifi_device_manager.scroll";
 
 // A tracker is offline while unavailable or unknown (devices.py).
 export const OFFLINE_STATES = ["unavailable", "unknown"];
 
-// Online, offline or disabled, from the tracker's current state.
-export function statusOf(record, stateObj) {
+export function isOnline(stateObj) {
+  return !!stateObj && !OFFLINE_STATES.includes(stateObj.state);
+}
+
+// A tracker: online, offline or disabled, from its current state.
+export function trackerStatus(record, states) {
   if (record.disabled) return "disabled";
-  const state = stateObj ? stateObj.state : null;
-  return state == null || OFFLINE_STATES.includes(state) ? "offline" : "online";
+  return isOnline(states[record.entity_id]) ? "online" : "offline";
+}
+
+// A service: online while any of its entities is available, "none" when
+// it has no enabled entities.
+export function serviceStatus(record, states) {
+  if (!record.entity_ids.length) return "none";
+  return record.entity_ids.some((id) => isOnline(states[id])) ? "online" : "offline";
+}
+
+// sessionStorage, like loadJSON/saveJSON below.
+export function loadSession(key, fallback) {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(key) || "null");
+    return value ?? fallback;
+  } catch (_err) {
+    return fallback;
+  }
+}
+
+export function saveSession(key, value) {
+  try {
+    sessionStorage.setItem(key, JSON.stringify(value));
+  } catch (_err) {
+    // Not kept; the list opens at the top.
+  }
 }
 
 // localStorage, which can be unavailable (private windows, blocked

@@ -9,6 +9,7 @@ from custom_components.unifi_device_manager.devices import (
     STATUS_DISABLED,
     STATUS_OFFLINE,
     STATUS_ONLINE,
+    async_unifi_services,
     async_unifi_trackers,
     tracker_status,
 )
@@ -79,13 +80,53 @@ async def test_lists_only_unifi_trackers(hass):
     assert ap["status"] == STATUS_ONLINE
     assert ap["device_id"] == device.id
     assert ap["device_name"] == "Office AP"
-    assert ap["model"] == "U6-Lite"
-    assert ap["site"] == "Home site"
+    # The tracker's own name, not the friendly name with the device's in front.
+    assert ap["entity_name"] == "Office AP"
     assert records["device_tracker.phone"]["status"] == STATUS_OFFLINE
     assert records["device_tracker.phone"]["device_id"] is None
     old = records["device_tracker.old_laptop"]
     assert old["status"] == STATUS_DISABLED
     assert old["entity_name"] == "Old laptop"
+    assert old["disabled_by"] == "user"
+
+
+async def test_services_listed_apart(hass):
+    entry = _unifi_entry(hass)
+    dev_reg = dr.async_get(hass)
+    ent_reg = er.async_get(hass)
+    wlan = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={("unifi", "wlan1")},
+        name="Home WiFi",
+        model="UniFi WLAN",
+        entry_type=dr.DeviceEntryType.SERVICE,
+    )
+    ent_reg.async_get_or_create(
+        "switch", "unifi", "wlan1", config_entry=entry, device_id=wlan.id,
+        suggested_object_id="home_wifi",
+    )
+    ent_reg.async_get_or_create(
+        "image", "unifi", "wlan1_qr", config_entry=entry, device_id=wlan.id,
+        suggested_object_id="home_wifi_qr", disabled_by=er.RegistryEntryDisabler.INTEGRATION,
+    )
+    # A tracker on a service is listed with the service, not as a device.
+    ent_reg.async_get_or_create(
+        "device_tracker", "unifi", "svc", config_entry=entry, device_id=wlan.id,
+        suggested_object_id="svc",
+    )
+    dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        connections={(dr.CONNECTION_NETWORK_MAC, "aa:bb:cc:dd:ee:01")},
+        name="Switch",
+    )
+
+    assert async_unifi_trackers(hass) == []
+    services = async_unifi_services(hass)
+    assert len(services) == 1
+    assert services[0]["name"] == "Home WiFi"
+    assert services[0]["model"] == "UniFi WLAN"
+    assert services[0]["entity_ids"] == ["device_tracker.svc", "switch.home_wifi"]
+    assert services[0]["disabled_entities"] == 1
 
 
 def test_modules_import():

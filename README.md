@@ -16,19 +16,39 @@ registered (network clients and UniFi's own devices alike):
 
 | Column | What it shows |
 |---|---|
-| **Device** | The device the tracker belongs to (links to its device page), with manufacturer, model and UniFi site; `—` when the tracker isn't linked to a device |
-| **Tracker name** | The `device_tracker` entity's name (click for Home Assistant's entity dialog) |
+| **Device** | The device the tracker belongs to (links to its device page); `—` when the tracker isn't linked to a device |
+| **Tracker name** | The tracker's own name, without the device's name in front (click for Home Assistant's entity dialog) |
 | **Entity ID** | The `device_tracker` entity ID |
-| **Status** | **Online** while the tracker is available, **Offline** while it's `unavailable` (or `unknown`), **Disabled** when the entity is disabled; with its state (e.g. `home`, `not_home`) and since when |
+| **Status** | **Online** while the tracker is available, **Offline** while it's `unavailable` (or `unknown`), **Disabled** when the entity is disabled |
 
-- Tabs: **All**, **Online**, **Offline** and **Disabled**, each with a
-  count; the **Devices** button shows the number offline in red.
+Tabs: **All**, **Online**, **Offline** and **Disabled**, each with a count.
+
+### Where disabled trackers come from
+
+UniFi reports a tracker for every client it has seen, and Home Assistant
+only enables the ones whose MAC address belongs to a device it already has
+(one added by another integration, for example). The rest are created
+*disabled by the integration*: they have no device, so they don't show
+among the UniFi integration's devices, and **Settings → Entities** only
+lists them with its *Show disabled entities* filter on. Hover over a
+Disabled chip to see who disabled it.
+
+## The Services page
+
+What the UniFi Network integration adds as services rather than devices
+(the UniFi Network application, its WLANs and DPI groups), with their type
+and number of entities. A service is **Online** while any of its entities
+is available, **Offline** when none is.
+
+## On both pages
+
+- The **Devices** and **Services** buttons show the number offline in red.
 - Live: status follows Home Assistant's states as they change, and
-  trackers added, renamed or removed appear straight away.
-- Filter by device, tracker name, entity ID, manufacturer, model, site or
-  state (press `/` to jump to the filter); sort by any column.
-- Export what's shown as CSV or Markdown.
-- The tab, filter and sort are remembered in the browser.
+  anything added, renamed or removed appears straight away.
+- Filter (press `/` to jump to it), sort by any column, and export what's
+  shown as CSV or Markdown.
+- Each page's tab, filter and sort are remembered in the browser, and
+  going Back after opening a device returns to the same place in the list.
 - Admins only.
 
 ## Installation
