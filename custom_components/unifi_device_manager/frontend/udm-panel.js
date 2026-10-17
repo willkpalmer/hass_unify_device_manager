@@ -14,6 +14,17 @@ const { STYLE, TEMPLATE } = await import(`./udm-style.js${V}`);
 
 // How long Undo is offered after an action.
 const UNDO_MS = 8000;
+// Which entries each tab shows: by default, those with the tab's status.
+const TAB_FILTERS = {
+  all: () => true,
+  // A device named differently from its tracker (trackers with no device
+  // can't be renamed).
+  renamable: (r) => !r.disabled && !!r.device_id && r.device !== r.entity_name,
+};
+function inTab(tab, r) {
+  return TAB_FILTERS[tab] ? TAB_FILTERS[tab](r) : r.status === tab;
+}
+
 const STATUS_LABELS = { online: "Online", offline: "Offline", disabled: "Disabled", none: "No entities" };
 // Status sorts offline first.
 const STATUS_RANK = { offline: 0, online: 1, none: 2, disabled: 3 };
@@ -40,6 +51,7 @@ const VIEWS = {
       online: ["Online", "Trackers that are available: UniFi is reporting the device."],
       offline: ["Offline", "Trackers that are unavailable (or unknown): UniFi isn't reporting the device."],
       disabled: ["Disabled", "Trackers disabled in Home Assistant. UniFi reports a tracker for every client it has seen, and Home Assistant only enables the ones whose MAC address belongs to a device it already has, so most of these are clients no integration has added as a device. They have no device, so they're not among the integration's devices, and Settings → Entities only lists them with its \"Show disabled entities\" filter on."],
+      renamable: ["Name differs", "Trackers that aren't disabled (online or offline) whose device's name isn't the same as the tracker's name: the ones that may need renaming. Select them and use Rename device to tracker name."],
     },
     columns: [
       { key: "device", label: "Device" },
@@ -296,7 +308,7 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
     const view = VIEWS[this._view];
     const st = this._st();
     const q = st.filter.trim().toLowerCase();
-    const shown = rows.filter((r) => (st.tab === "all" || r.status === st.tab)
+    const shown = rows.filter((r) => inTab(st.tab, r)
       && (!q || view.searchKeys.some((k) => r[k] && String(r[k]).toLowerCase().includes(q))));
     const { key, dir } = st.sort;
     // Trackers with no device sort after the rest.
@@ -343,10 +355,12 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
     }
 
     const rows = this._rows();
-    const counts = { all: rows.length };
-    for (const r of rows) counts[r.status] = (counts[r.status] || 0) + 1;
+    const counts = {};
+    for (const tab of new Set(["online", "offline", ...Object.keys(view.tabs)])) {
+      counts[tab] = rows.filter((r) => inTab(tab, r)).length;
+    }
     for (const tab of Object.keys(view.tabs)) {
-      this.shadowRoot.querySelector(`[data-tab-count="${tab}"]`).textContent = this._loaded ? num(counts[tab] || 0) : "";
+      this.shadowRoot.querySelector(`[data-tab-count="${tab}"]`).textContent = this._loaded ? num(counts[tab]) : "";
       const button = this.shadowRoot.querySelector(`[data-tab="${tab}"]`);
       button.classList.toggle("active", tab === st.tab);
       button.setAttribute("aria-selected", String(tab === st.tab));

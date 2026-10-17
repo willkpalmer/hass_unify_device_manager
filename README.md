@@ -21,7 +21,11 @@ registered (network clients and UniFi's own devices alike):
 | **Entity ID** | The `device_tracker` entity ID |
 | **Status** | **Online** while the tracker is available, **Offline** while it's `unavailable` (or `unknown`), **Disabled** when the entity is disabled |
 
-Tabs: **All**, **Online**, **Offline** and **Disabled**, each with a count.
+Tabs: **All**, **Online**, **Offline**, **Disabled** and **Name differs**,
+each with a count. **Name differs** lists the trackers that aren't disabled
+(online or offline) whose device's name isn't exactly the tracker's name:
+the ones that may need renaming (see below). Trackers with no device aren't
+listed there, as there's no device to rename.
 
 ### Selecting trackers and renaming their devices
 
