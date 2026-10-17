@@ -126,6 +126,8 @@ td.check, th.check { width: 36px; padding-right: 0; }
 td.when { white-space: nowrap; font-variant-numeric: tabular-nums; }
 td.entity-id { word-break: break-all; min-width: 160px; font-family: var(--code-font-family, monospace); font-size: 13px; }
 td.name { min-width: 160px; word-break: break-word; }
+/* UniFi has no alias for it: its hostname (or model), in grey. */
+.fallback { color: var(--secondary-text-color, #727272); font-style: italic; }
 tbody tr.row:hover { background: var(--secondary-background-color, rgba(0,0,0,0.03)); }
 tbody tr.row.selected { background: rgba(3, 169, 244, 0.1); }
 input[type=checkbox] { width: 18px; height: 18px; cursor: pointer; accent-color: var(--primary-color, #03a9f4); }
@@ -164,7 +166,7 @@ a:hover { text-decoration: underline; }
   tbody tr.row.selectable { grid-template-columns: 30px 1fr; column-gap: 10px; }
   tbody tr.row td { border: 0; padding: 0; min-width: 0; text-align: left; }
   tbody tr.row.selectable td { grid-column: 2; }
-  tbody tr.row.selectable td.check { grid-column: 1; grid-row: 1 / span 4; }
+  tbody tr.row.selectable td.check { grid-column: 1; grid-row: 1 / span 8; }
   tbody tr.row td.no-device { display: none; }
   tbody tr.row td.when { font-size: 12px; color: var(--secondary-text-color, #727272); }
   /* The tabs scroll sideways rather than run off the card. */
@@ -203,6 +205,10 @@ export const TEMPLATE = `
       <span class="spacer"></span>
       <button class="action" data-action="rename" data-el="rename" disabled
         title="Name each selected tracker's device after the tracker (the name shown under Tracker name)">Rename device to tracker name</button>
+      <button class="action" data-action="rename-alias" data-el="rename-alias" disabled
+        title="Name each selected tracker's device after its current name in UniFi (the name shown under UniFi alias)">Rename device to UniFi alias</button>
+      <button class="action secondary" data-action="reload-unifi" data-el="reload-unifi"
+        title="Reload the UniFi Network integration: the trackers are renamed after UniFi's current names (trackers you've renamed yourself keep your names)">Reload UniFi</button>
       <details class="export" data-el="export">
         <summary class="action secondary" role="button" title="Save the entries shown (or just the selected ones) as a file">Export</summary>
         <div class="menu">

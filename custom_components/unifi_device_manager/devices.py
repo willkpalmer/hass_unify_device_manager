@@ -14,7 +14,8 @@ homeassistant/components/device_tracker/config_entry.py). They have no
 device, so they don't show among the integration's devices.
 
 Devices can be renamed to their tracker's name
-(async_rename_devices_to_trackers), which sets the name you'd otherwise
+(async_rename_devices_to_trackers) or to UniFi's current name for the
+tracker (async_rename_devices_to_aliases, see aliases.py), which sets the name you'd otherwise
 set on the device's page (name_by_user), and their names put back
 (async_set_device_names) for Undo.
 
@@ -25,6 +26,7 @@ the panel follows.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -32,6 +34,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
+from .aliases import async_unifi_aliases
 from .const import UNIFI_DOMAIN
 
 TRACKER_DOMAIN = "device_tracker"
@@ -75,6 +78,7 @@ def async_unifi_trackers(hass: HomeAssistant) -> list[dict[str, Any]]:
     """Every UniFi device tracker not on a service, as plain data."""
     ent_reg = er.async_get(hass)
     dev_reg = dr.async_get(hass)
+    aliases = async_unifi_aliases(hass) or {}
     records: list[dict[str, Any]] = []
     for entry in ent_reg.entities.values():
         if not _is_unifi_tracker(entry):
@@ -93,6 +97,10 @@ def async_unifi_trackers(hass: HomeAssistant) -> list[dict[str, Any]]:
                 "device_name": device_name,
                 "disabled": disabled,
                 "disabled_by": entry.disabled_by.value if entry.disabled_by else None,
+                # UniFi's current name for it, live (aliases.py), and
+                # whether that's an alias, a hostname or a model.
+                "alias": (aliases.get(entry.entity_id) or {}).get("alias"),
+                "alias_source": (aliases.get(entry.entity_id) or {}).get("source"),
                 "state": state.state if state else None,
                 "status": tracker_status(state.state if state else None, disabled),
             }
@@ -126,15 +134,17 @@ def async_unifi_services(hass: HomeAssistant) -> list[dict[str, Any]]:
 
 
 @callback
-def async_rename_devices_to_trackers(
-    hass: HomeAssistant, entity_ids: list[str]
+def async_rename_devices(
+    hass: HomeAssistant,
+    entity_ids: list[str],
+    name_for: Callable[[er.RegistryEntry, dr.DeviceEntry], str | None],
 ) -> tuple[list[dict[str, Any]], int]:
-    """Name each tracker's device after the tracker.
+    """Name each tracker's device name_for(tracker, device).
 
     Returns the devices renamed, each with the name it had before
     ({"device_id", "name_by_user"}, for Undo), and how many trackers were
-    skipped: not UniFi's, with no device, already named so, or on a device
-    another selected tracker has renamed.
+    skipped: not UniFi's, with no device or no name for it, already named
+    so, or on a device another selected tracker has renamed.
     """
     ent_reg = er.async_get(hass)
     dev_reg = dr.async_get(hass)
@@ -150,13 +160,36 @@ def async_rename_devices_to_trackers(
         if device is None or any(c["device_id"] == device.id for c in changes):
             skipped += 1
             continue
-        name = _tracker_name(entry, _device_name(device))
-        if name == _device_name(device):
+        name = name_for(entry, device)
+        if not name or name == _device_name(device):
             skipped += 1
             continue
         changes.append({"device_id": device.id, "name_by_user": device.name_by_user})
         dev_reg.async_update_device(device.id, name_by_user=name)
     return changes, skipped
+
+
+@callback
+def async_rename_devices_to_trackers(
+    hass: HomeAssistant, entity_ids: list[str]
+) -> tuple[list[dict[str, Any]], int]:
+    """Name each tracker's device after the tracker (see async_rename_devices)."""
+    return async_rename_devices(
+        hass, entity_ids, lambda entry, device: _tracker_name(entry, _device_name(device))
+    )
+
+
+@callback
+def async_rename_devices_to_aliases(
+    hass: HomeAssistant, entity_ids: list[str]
+) -> tuple[list[dict[str, Any]], int]:
+    """Name each tracker's device after UniFi's current name for it (see
+    aliases.py and async_rename_devices); trackers UniFi has no name for
+    are skipped."""
+    aliases = async_unifi_aliases(hass) or {}
+    return async_rename_devices(
+        hass, entity_ids, lambda entry, device: (aliases.get(entry.entity_id) or {}).get("alias")
+    )
 
 
 @callback

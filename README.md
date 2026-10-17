@@ -18,14 +18,37 @@ registered (network clients and UniFi's own devices alike):
 |---|---|
 | **Device** | The device the tracker belongs to (links to its device page); `—` when the tracker isn't linked to a device |
 | **Tracker name** | The tracker's own name, without the device's name in front (click for Home Assistant's entity dialog) |
+| **UniFi alias** | UniFi's current name for it, live from your gateway: the alias set in the UniFi Network app, or (in grey) the client's hostname when there's no alias |
 | **Entity ID** | The `device_tracker` entity ID |
 | **Status** | **Online** while the tracker is available, **Offline** while it's `unavailable` (or `unknown`), **Disabled** when the entity is disabled |
 
-Tabs: **All**, **Online**, **Offline**, **Disabled** and **Name differs**,
-each with a count. **Name differs** lists the trackers that aren't disabled
+Tabs: **All**, **Online**, **Offline**, **Disabled**, **Name differs** and
+**Alias differs**, each with a count. **Name differs** lists the trackers that aren't disabled
 (online or offline) whose device's name isn't exactly the tracker's name:
 the ones that may need renaming (see below). Trackers with no device aren't
-listed there, as there's no device to rename.
+listed there, as there's no device to rename. **Alias differs** lists the
+trackers that aren't disabled whose device name or tracker name isn't
+UniFi's current alias.
+
+### UniFi aliases
+
+The UniFi Network integration copies a client's alias into the tracker's
+name only when it loads the tracker, and into the device's name only when
+the device is first created, so both drift once you change an alias in
+UniFi. The **UniFi alias** column reads the current names from the UniFi
+integration's own connection to your gateway (checked every 30 seconds
+while the page is open), so there's nothing to set up. That connection
+isn't an official Home Assistant API: if a Home Assistant update changes
+it, the column shows `—` (and the Alias differs tab says why) until this
+integration is updated, and everything else keeps working.
+
+- **Rename device to UniFi alias** names each selected tracker's device
+  after its current UniFi alias, with Undo, like *Rename device to tracker
+  name*.
+- **Reload UniFi** reloads the UniFi Network integration, which renames
+  the trackers after UniFi's current names (trackers you've renamed
+  yourself keep your names). Their trackers are briefly unavailable while
+  it reloads.
 
 ### Selecting trackers and renaming their devices
 

@@ -20,6 +20,13 @@ const TAB_FILTERS = {
   // A device named differently from its tracker (trackers with no device
   // can't be renamed).
   renamable: (r) => !r.disabled && !!r.device_id && r.device !== r.entity_name,
+  // UniFi's current name isn't the device's or the tracker's.
+  aliasdiffers: (r) => !r.disabled && !!r.alias
+    && ((!!r.device_id && r.device !== r.alias) || r.entity_name !== r.alias),
+};
+const ALIAS_SOURCES = {
+  hostname: "No alias set in UniFi: this is the client's hostname",
+  model: "No name set in UniFi: this is the device's model",
 };
 function inTab(tab, r) {
   return TAB_FILTERS[tab] ? TAB_FILTERS[tab](r) : r.status === tab;
@@ -42,7 +49,7 @@ const VIEWS = {
     title: "UniFi devices",
     footerNoun: "UniFi device trackers",
     list: "trackers",
-    filterPlaceholder: "Filter by device, tracker name or entity ID",
+    filterPlaceholder: "Filter by device, tracker name, alias or entity ID",
     noun: ["tracker", "trackers"],
     empty: "No UniFi device trackers found. Is the UniFi Network integration set up?",
     status: trackerStatus,
@@ -52,15 +59,17 @@ const VIEWS = {
       offline: ["Offline", "Trackers that are unavailable (or unknown): UniFi isn't reporting the device."],
       disabled: ["Disabled", "Trackers disabled in Home Assistant. UniFi reports a tracker for every client it has seen, and Home Assistant only enables the ones whose MAC address belongs to a device it already has, so most of these are clients no integration has added as a device. They have no device, so they're not among the integration's devices, and Settings → Entities only lists them with its \"Show disabled entities\" filter on."],
       renamable: ["Name differs", "Trackers that aren't disabled (online or offline) whose device's name isn't the same as the tracker's name: the ones that may need renaming. Select them and use Rename device to tracker name."],
+      aliasdiffers: ["Alias differs", "Trackers that aren't disabled whose device's name or tracker name isn't UniFi's current name for them (the alias set in the UniFi Network app, or its hostname when there isn't one). Rename device to UniFi alias fixes the device name; Reload UniFi updates the tracker names."],
     },
     columns: [
       { key: "device", label: "Device" },
       { key: "entity_name", label: "Tracker name" },
+      { key: "alias", label: "UniFi alias" },
       { key: "entity_id", label: "Entity ID" },
       { key: "status", label: "Status" },
     ],
     defaultSort: { key: "device", dir: 1 },
-    searchKeys: ["device", "entity_name", "entity_id"],
+    searchKeys: ["device", "entity_name", "alias", "entity_id"],
     // Trackers can be selected, by entity ID.
     selectable: true,
   },
@@ -96,6 +105,8 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
     this._panel = null;
     this._data = { trackers: [], services: [] };
     this._loaded = false;
+    // Whether UniFi's names (aliases) can be read (the list says).
+    this._aliases = true;
     this._error = null;
     this._unsub = null;
     this._subscribing = false;
@@ -284,6 +295,8 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
   _onMessage(msg) {
     if (!msg.trackers) return;
     this._data = { trackers: msg.trackers, services: msg.services || [] };
+    // Whether UniFi's names (aliases) could be read at all.
+    this._aliases = msg.aliases !== false;
     this._loaded = true;
     this._stateKey = "";
     // Trackers no longer there can't stay selected.
@@ -365,7 +378,9 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
       button.classList.toggle("active", tab === st.tab);
       button.setAttribute("aria-selected", String(tab === st.tab));
     }
-    this._el("hint").textContent = view.tabs[st.tab][1];
+    this._el("hint").textContent = st.tab === "aliasdiffers" && this._loaded && !this._aliases
+      ? "UniFi's current names can't be read right now: is the UniFi Network integration loaded? (If it is, a Home Assistant update may have changed how it keeps them, and this needs an update too.)"
+      : view.tabs[st.tab][1];
     this._el("summary").textContent = this._loaded
       ? `${num(counts.online || 0)} online · ${num(counts.offline || 0)} offline`
       : "";
@@ -396,6 +411,12 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
     const renamable = selected.filter((r) => r.device_id).length;
     rename.disabled = !renamable;
     rename.textContent = renamable > 1 ? `Rename ${num(renamable)} devices to tracker names` : "Rename device to tracker name";
+    const renameAlias = this._el("rename-alias");
+    renameAlias.hidden = !view.selectable;
+    const aliasable = selected.filter((r) => r.device_id && r.alias).length;
+    renameAlias.disabled = !aliasable;
+    renameAlias.textContent = aliasable > 1 ? `Rename ${num(aliasable)} devices to UniFi aliases` : "Rename device to UniFi alias";
+    this._el("reload-unifi").hidden = !view.selectable;
     this._el("footer").textContent = this._loaded
       ? `Showing ${num(shown.length)} of ${num(rows.length)} ${view.footerNoun}${selected.length ? ` · ${num(selected.length)} selected` : ""}`
       : "";
@@ -498,6 +519,21 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
     tdName.appendChild(name);
     tr.appendChild(tdName);
 
+    // UniFi's current name: its alias, or in grey its hostname (or model).
+    const tdAlias = document.createElement("td");
+    tdAlias.className = "name";
+    if (r.alias) {
+      tdAlias.textContent = r.alias;
+      if (ALIAS_SOURCES[r.alias_source]) {
+        tdAlias.classList.add("fallback");
+        tdAlias.title = ALIAS_SOURCES[r.alias_source];
+      }
+    } else {
+      tdAlias.textContent = "—";
+      tdAlias.title = this._aliases ? "UniFi doesn't know this tracker any more" : "UniFi's names can't be read right now";
+    }
+    tr.appendChild(tdAlias);
+
     const tdId = document.createElement("td");
     tdId.className = "entity-id";
     tdId.textContent = r.entity_id;
@@ -594,7 +630,11 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
     if (action === "menu") {
       this.dispatchEvent(new Event("hass-toggle-menu", { bubbles: true, composed: true }));
     } else if (action === "rename") {
-      this._renameToTrackers();
+      this._renameDevices(WS.RENAME_TO_TRACKER, "rename", (r) => r.device_id);
+    } else if (action === "rename-alias") {
+      this._renameDevices(WS.RENAME_TO_ALIAS, "rename-alias", (r) => r.device_id && r.alias);
+    } else if (action === "reload-unifi") {
+      this._reloadUnifi();
     } else if (action === "undo") {
       this._runUndo();
     } else if (action === "export-csv" || action === "export-md") {
@@ -623,16 +663,17 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
     this._render();
   }
 
-  // Names the selected trackers' devices after the trackers, then offers
-  // Undo (their names as they were) for a few seconds.
-  async _renameToTrackers() {
-    const entityIds = this._selectedShown().filter((r) => r.device_id).map((r) => r.entity_id);
+  // Names the selected trackers' devices (after the trackers, or after
+  // UniFi's names for them), then offers Undo (their names as they were)
+  // for a few seconds.
+  async _renameDevices(type, buttonEl, canRename) {
+    const entityIds = this._selectedShown().filter(canRename).map((r) => r.entity_id);
     if (!entityIds.length) return;
-    const button = this._el("rename");
+    const button = this._el(buttonEl);
     button.disabled = true;
     let result;
     try {
-      result = await this._hass.callWS({ type: WS.RENAME_TO_TRACKER, entity_ids: entityIds });
+      result = await this._hass.callWS({ type, entity_ids: entityIds });
     } catch (err) {
       alert(`WP UniFi Device Manager: ${err.message || err.code || err}`);
       this._render();
@@ -641,11 +682,28 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
     this._st().selected.clear();
     this._render();
     const renamed = `Renamed ${num(result.renamed)} device${result.renamed === 1 ? "" : "s"}`;
-    const skipped = result.skipped ? ` · ${num(result.skipped)} unchanged (already named so)` : "";
+    const skipped = result.skipped ? ` · ${num(result.skipped)} unchanged` : "";
     this._showUndo(
       `${renamed}${skipped}`,
       result.undo.length ? { type: WS.SET_NAMES, names: result.undo } : null,
     );
+  }
+
+  // Reloads the UniFi integration, which names the trackers after UniFi's
+  // current names; the list follows once it's back.
+  async _reloadUnifi() {
+    const button = this._el("reload-unifi");
+    button.disabled = true;
+    this._showUndo("Reloading UniFi…", null);
+    try {
+      await this._hass.callWS({ type: WS.RELOAD_UNIFI });
+      this._showUndo("UniFi reloaded: tracker names now follow UniFi's names", null);
+    } catch (err) {
+      this._hideUndo();
+      alert(`WP UniFi Device Manager: ${err.message || err.code || err}`);
+    } finally {
+      button.disabled = false;
+    }
   }
 
   _showUndo(message, undo) {
@@ -681,8 +739,8 @@ export class UnifiDeviceManagerPanel extends HTMLElement {
     const [header, body] = this._view === "services"
       ? [["Service", "Type", "Entities", "Status"],
         rows.map((r) => [r.name, r.model, r.entities, STATUS_LABELS[r.status]])]
-      : [["Device", "Tracker name", "Entity ID", "Status"],
-        rows.map((r) => [r.device, r.entity_name, r.entity_id, STATUS_LABELS[r.status]])];
+      : [["Device", "Tracker name", "UniFi alias", "Entity ID", "Status"],
+        rows.map((r) => [r.device, r.entity_name, r.alias, r.entity_id, STATUS_LABELS[r.status]])];
     const tab = this._st().tab;
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
     const name = `unifi-${this._view}-${tab}-${stamp}`;

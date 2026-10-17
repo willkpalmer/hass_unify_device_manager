@@ -175,3 +175,99 @@ async def test_rename_devices_to_trackers(hass):
     # Undo.
     assert async_set_device_names(hass, changes) == 1
     assert dev_reg.async_get(phone.id).name_by_user == "Old name"
+
+
+class _Handler(dict):
+    """Like aiounifi's client and device lists: get(mac)."""
+
+
+class _Obj:
+    def __init__(self, name="", hostname="", model=""):
+        self.name, self.hostname, self.model = name, hostname, model
+
+
+def _load_with_hub(hass, entry, clients=None, clients_all=None, devices=None):
+    from types import SimpleNamespace
+
+    from homeassistant.config_entries import ConfigEntryState
+
+    entry._async_set_state(hass, ConfigEntryState.LOADED, None)
+    entry.runtime_data = SimpleNamespace(
+        site="default",
+        api=SimpleNamespace(
+            clients=_Handler(clients or {}),
+            clients_all=_Handler(clients_all or {}),
+            devices=_Handler(devices or {}),
+        ),
+    )
+
+
+async def test_aliases_from_unifi(hass):
+    from custom_components.unifi_device_manager.aliases import async_unifi_aliases
+    from custom_components.unifi_device_manager.devices import async_rename_devices_to_aliases
+
+    entry = _unifi_entry(hass)
+    dev_reg = dr.async_get(hass)
+    ent_reg = er.async_get(hass)
+    phone = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        connections={(dr.CONNECTION_NETWORK_MAC, "aa:00:00:00:00:01")},
+        name="Pixel-10",
+    )
+    ent_reg.async_get_or_create(
+        "device_tracker", "unifi", "default-aa:00:00:00:00:01", config_entry=entry,
+        device_id=phone.id, original_name="Pixel-10", suggested_object_id="phone",
+    )
+    ent_reg.async_get_or_create(
+        "device_tracker", "unifi", "default-aa:00:00:00:00:02", config_entry=entry,
+        original_name="laptop", suggested_object_id="laptop",
+    )
+    ent_reg.async_get_or_create(
+        "device_tracker", "unifi", "aa:00:00:00:00:03", config_entry=entry,
+        original_name="U6-Lite", suggested_object_id="ap",
+    )
+    ent_reg.async_get_or_create(
+        "device_tracker", "unifi", "default-aa:00:00:00:00:04", config_entry=entry,
+        original_name="Gone", suggested_object_id="gone",
+    )
+
+    # Not loaded: the names can't be read.
+    assert async_unifi_aliases(hass) is None
+
+    _load_with_hub(
+        hass, entry,
+        # The alias wins over the hostname; offline clients are in clients_all.
+        clients={"aa:00:00:00:00:01": _Obj(name="Will's Pixel", hostname="pixel-10")},
+        clients_all={"aa:00:00:00:00:02": _Obj(hostname="laptop-7")},
+        devices={"aa:00:00:00:00:03": _Obj(name="Office AP", model="U6-Lite")},
+    )
+    assert async_unifi_aliases(hass) == {
+        "device_tracker.phone": {"alias": "Will's Pixel", "source": "alias"},
+        "device_tracker.laptop": {"alias": "laptop-7", "source": "hostname"},
+        "device_tracker.ap": {"alias": "Office AP", "source": "alias"},
+    }
+    records = {r["entity_id"]: r for r in async_unifi_trackers(hass)}
+    assert records["device_tracker.phone"]["alias"] == "Will's Pixel"
+    assert records["device_tracker.gone"]["alias"] is None
+
+    changes, skipped = async_rename_devices_to_aliases(
+        hass, ["device_tracker.phone", "device_tracker.laptop"]
+    )
+    assert changes == [{"device_id": phone.id, "name_by_user": None}]
+    assert skipped == 1  # the laptop has no device
+    assert dev_reg.async_get(phone.id).name_by_user == "Will's Pixel"
+
+
+async def test_aliases_unreadable(hass):
+    from types import SimpleNamespace
+
+    from homeassistant.config_entries import ConfigEntryState
+
+    from custom_components.unifi_device_manager.aliases import async_unifi_aliases
+
+    entry = _unifi_entry(hass)
+    entry._async_set_state(hass, ConfigEntryState.LOADED, None)
+    # The UniFi integration's internals have changed shape.
+    entry.runtime_data = SimpleNamespace()
+    assert async_unifi_aliases(hass) is None
+    assert async_unifi_trackers(hass) == []
